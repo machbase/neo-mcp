@@ -50,7 +50,7 @@ func registerReadOnlyTools(mcpServer *server.MCPServer, client *Client) {
 	mcpServer.AddTool(
 		mcp.NewTool("db_query",
 			mcp.WithTitleAnnotation("Machbase SQL query"),
-			mcp.WithDescription("Execute a SQL query through the configured machbase-neo HTTP API. Read neo://manual/sql first for Machbase-specific SQL guidance."),
+			mcp.WithDescription("Execute a SQL query through the configured machbase-neo HTTP API. Read neo://manual/sql first, especially its identifier guidance: avoid SQL keywords such as ROWS as aliases and prefer names like row_count or record_count."),
 			mcp.WithReadOnlyHintAnnotation(false),
 			mcp.WithDestructiveHintAnnotation(true),
 			mcp.WithIdempotentHintAnnotation(false),
@@ -177,12 +177,17 @@ func tqlToolResult(ctx context.Context, client *Client, result any, err error) (
 		if renderErr != nil {
 			return mcp.NewToolResultError(renderErr.Error()), nil
 		}
-		return mcp.NewToolResultStructured(chartFile, fmt.Sprintf("Interactive chart: [Open chart](%s)", chartFile["link"])), nil
+		return chartToolResult(chartFile), nil
 	}
 	if text, ok := result.(string); ok {
 		return mcp.NewToolResultText(text), nil
 	}
 	return toolResult(result, nil)
+}
+
+func chartToolResult(chartFile map[string]any) *mcp.CallToolResult {
+	link := stringValue(chartFile["uri"], stringValue(chartFile["link"], ""))
+	return mcp.NewToolResultText(fmt.Sprintf("Interactive chart: [Open chart](%s)", link))
 }
 
 func registerManualTool(mcpServer *server.MCPServer) {

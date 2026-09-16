@@ -85,7 +85,14 @@ CHART(
 )
 ```
 
-The MCP server converts this chart envelope into self-contained HTML by loading `jsAssets` before `jsCodeAssets`, saves it under the workspace `.neo-mcp/charts/<chartID>.html`, and returns a workspace-relative Markdown link. In VS Code, click the link to open the chart in the editor or the default browser. The MCP server must not place the API token in the generated HTML.
+The MCP server converts this chart envelope into self-contained HTML by loading `jsAssets` before `jsCodeAssets`, saves it under `<temp>/neo-mcp-<pid>/charts/<chartID>.html` by default, and serves the shared data root through a loopback HTTP server on an ephemeral `127.0.0.1` port. Use `-data-dir` to select another artifact root; charts are always stored in its `charts/` subdirectory and are linked as `http://127.0.0.1:<port>/charts/<chartID>.html`. The link opens in a browser instead of being resolved as a workspace editor file. The MCP server must not place the API token in the generated HTML.
+
+The VS Code API provides the public `vscode.open` command for opening the
+generated local HTML file. A future companion extension can watch the
+configured data root's `charts/` directory and expose an
+`neo-mcp.openLatestChart` command. The MCP
+stdio process itself cannot directly invoke arbitrary VS Code commands, and a
+dedicated Internal Browser command is not treated as a stable public API.
 
 Use `fs_list` to discover server-side TQL files and `tql_run_file` to read and
 execute a selected `.tql` file. The file path is an SSFS server path, not a
@@ -102,7 +109,7 @@ Expected sequence:
 1. `manual_read` for `neo://manual/tql`.
 2. Write the `SCRIPT()` and `CHART()` script.
 3. Call `tql_run` with the script.
-4. Receive an interactive chart file link under `.neo-mcp/charts/`.
+4. Receive an interactive chart file link served from the configured data root's `charts/` directory.
 
 ## Function and signature reference
 

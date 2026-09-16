@@ -18,6 +18,117 @@ another logical database. Use `neo://machbase/table/{table}` for the current tab
 - Treat identifiers returned by metadata tools as authoritative.
 - Keep exploratory queries read-only unless the configured DB user is intentionally a development user.
 
+## Identifiers and Aggregate Aliases
+
+Avoid SQL keywords as table names, column aliases, or CTE names. In
+particular, do not use `ROWS` as an aggregate alias; `ROWS` is used by SQL
+syntax and can produce a syntax error such as `MACHCLI-ERR-2010`.
+
+Prefer descriptive aliases that cannot be confused with SQL clauses:
+
+```sql
+SELECT COUNT(*) AS row_count,
+	   MIN(VALUE) AS min_value,
+	   MAX(VALUE) AS max_value,
+	   AVG(VALUE) AS average_value
+FROM EXAMPLE
+WHERE NAME = 'temperature'
+```
+
+Use names such as `row_count`, `record_count`, `total_value`, `min_value`,
+`max_value`, and `average_value`. When a generated query fails near an alias,
+rename the alias before changing the query logic. Do not quote a questionable
+alias as the first workaround; prefer a safe unquoted identifier.
+
+## Frequently Used SQL Functions
+
+Canonical complete reference:
+https://docs.machbase.com/dbms/reference/sql/functions/functions-full.md
+
+Use the following functions for common analysis tasks. Check the complete
+reference for argument types, edition/version availability, and function-specific
+constraints before generating less common expressions.
+
+### Aggregation and statistics
+
+- `COUNT(*)`, `COUNT(column)`: row count or non-NULL value count
+- `SUM(column)`, `AVG(column)`: total and average of numeric values
+- `MIN(column)`, `MAX(column)`: extrema
+- `MEDIAN(column)`, `MODE(column)`: exact median and most frequent numeric value
+- `P05`, `P10`, `P90`, `P95`, `PERCENTILE_CONT`, `PERCENTILE_DISC`, `QUANTILE`: percentiles
+- `STDDEV`, `STDDEV_POP`, `VARIANCE`, `VAR_POP`: dispersion
+- `FIRST(sort_expr, return_expr)`, `LAST(sort_expr, return_expr)`: value at the first/last sort position
+- `GROUP_CONCAT(column)`: concatenate grouped values; check edition constraints
+
+Example:
+
+```sql
+SELECT NAME AS sensor_name,
+	   COUNT(*) AS row_count,
+	   AVG(VALUE) AS average_value,
+	   MIN(VALUE) AS min_value,
+	   MAX(VALUE) AS max_value,
+	   P95(VALUE) AS p95_value
+FROM EXAMPLE
+GROUP BY NAME
+ORDER BY sensor_name
+```
+
+### NULL, conditional, and conversion
+
+- `NVL(value, replacement)`: replace NULL with a fallback
+- `DECODE(value, search, result, ..., default)`: equality-based mapping
+- `CAST(expression AS type)`: explicit type conversion; use a valid Machbase type
+- `TO_NUMBER` / `TO_NUMBER_SAFE`: string-to-number conversion; the SAFE form returns NULL on invalid input
+- `TO_DATE` / `TO_DATE_SAFE`: string-to-DATETIME conversion; the SAFE form returns NULL on invalid input
+- `TO_CHAR(value[, format])`: format numbers and DATETIME values as strings
+
+NULL input generally produces NULL output. Use SAFE conversion functions when
+one malformed value should not abort the whole analysis.
+
+### Datetime and time-series grouping
+
+- `SYSDATE`, `NOW`: current server time
+- `YEAR`, `MONTH`, `DAY`, `DAYOFWEEK`: datetime parts
+- `FROM_TIMESTAMP`, `TO_TIMESTAMP`: nanosecond epoch conversion
+- `FROM_UNIXTIME`, `UNIX_TIMESTAMP`: 32-bit Unix time conversion
+- `DATE_TRUNC(field, datetime[, count])`: truncate to time boundaries
+- `DATE_BIN(field, count, datetime[, origin])`: fixed-size time buckets
+- `ADD_TIME(datetime, diff)`: add years/months/days and time components
+
+For time-series queries, make timezone and output formatting explicit with the
+`tz` and `timeformat` query options.
+
+```sql
+SELECT DATE_TRUNC('hour', TIME) AS hour_bucket,
+	   AVG(VALUE) AS average_value
+FROM EXAMPLE
+GROUP BY hour_bucket
+ORDER BY hour_bucket
+```
+
+### Strings and numeric helpers
+
+- `LOWER`, `UPPER`: case conversion
+- `LENGTH`: string length in bytes
+- `SUBSTR`, `SUBSTRING_INDEX`: substring extraction
+- `INSTR`: 1-based pattern position, or 0 when absent
+- `LTRIM`, `RTRIM`, `LPAD`, `RPAD`: trimming and padding
+- `REGEXP_LIKE`, `REGEXP_INSTR`, `REGEXP_SUBSTR`, `REGEXP_REPLACE`: regular-expression operations
+- `ABS`, `ROUND`, `TRUNC`, `FLOOR`, `CEIL`, `MOD`: numeric operations
+- `PI`, `POWER`/`POW`, `SQRT`, `LOG`, `LN`, `EXP`, `SIN`, `COS`, `TAN`: math functions
+
+### JSON and analytic functions
+
+- JSON extraction: `JSON_EXTRACT_STRING`, `JSON_EXTRACT_INTEGER`, `JSON_EXTRACT_DOUBLE`, `JSON_TYPEOF`
+- JSON mutation: `JSON_SET`, `JSON_SET_JSON`, `JSON_REMOVE`
+- JSON access operators: `json_column->'$.path'` and `json_column.member`
+- Window functions require `OVER`, such as `LAG`, `LEAD`, and `NTILE`
+
+When a function reports an argument-type error, inspect the table metadata and
+cast explicitly rather than relying on implicit conversion. Function errors can
+abort the statement; use SAFE variants where the source data is not clean.
+
 ## HTTP Query Output Options
 
 The canonical HTTP query API is documented at

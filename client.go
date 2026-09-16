@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 var tableIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_$]*$`)
@@ -25,8 +27,12 @@ type Client struct {
 	baseURL          string
 	token            string
 	httpClient       *http.Client
-	workspaceDir     string
+	dataDir          string
 	maxResponseBytes int64
+	chartMu          sync.Mutex
+	chartServer      *http.Server
+	chartListener    net.Listener
+	chartBaseURL     string
 }
 
 func NewClient(baseURL, token string, httpClient *http.Client) *Client {
@@ -37,8 +43,18 @@ func NewClient(baseURL, token string, httpClient *http.Client) *Client {
 		baseURL:          strings.TrimRight(baseURL, "/"),
 		token:            token,
 		httpClient:       httpClient,
-		workspaceDir:     currentWorkspaceDir(),
+		dataDir:          defaultDataDir(),
 		maxResponseBytes: DefaultMaxResponseBytes,
+	}
+}
+
+func defaultDataDir() string {
+	return filepath.Join(os.TempDir(), fmt.Sprintf("neo-mcp-%d", os.Getpid()))
+}
+
+func (c *Client) SetDataDir(dataDir string) {
+	if strings.TrimSpace(dataDir) != "" {
+		c.dataDir = dataDir
 	}
 }
 
@@ -46,6 +62,39 @@ func (c *Client) SetMaxResponseBytes(size int64) {
 	if size > 0 {
 		c.maxResponseBytes = size
 	}
+}
+
+func (c *Client) Close() error {
+	c.chartMu.Lock()
+	defer c.chartMu.Unlock()
+	if c.chartServer == nil {
+		return nil
+	}
+	err := c.chartServer.Close()
+	c.chartServer = nil
+	c.chartListener = nil
+	c.chartBaseURL = ""
+	return err
+}
+
+func (c *Client) ensureChartServer(chartDir string) (string, error) {
+	c.chartMu.Lock()
+	defer c.chartMu.Unlock()
+	if c.chartServer != nil {
+		return c.chartBaseURL, nil
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", fmt.Errorf("start chart server: %w", err)
+	}
+	server := &http.Server{Handler: http.FileServer(http.Dir(chartDir))}
+	c.chartServer = server
+	c.chartListener = listener
+	c.chartBaseURL = "http://" + listener.Addr().String()
+	go func() {
+		_ = server.Serve(listener)
+	}()
+	return c.chartBaseURL, nil
 }
 
 func (c *Client) readResponseBody(reader io.Reader) ([]byte, error) {
@@ -61,14 +110,6 @@ func (c *Client) readResponseBody(reader io.Reader) ([]byte, error) {
 		return nil, fmt.Errorf("response exceeds maximum size of %d bytes", limit)
 	}
 	return body, nil
-}
-
-func currentWorkspaceDir() string {
-	workspaceDir, err := os.Getwd()
-	if err != nil {
-		return "."
-	}
-	return workspaceDir
 }
 
 func (c *Client) doJSON(ctx context.Context, method, path string, query url.Values, body any) (any, string, error) {
@@ -326,7 +367,11 @@ func (c *Client) WriteChartHTML(ctx context.Context, chart map[string]any) (map[
 </head><body><div id="%s" data-theme="%s"></div>%s</body></html>
 `, chartID, chartID, chartID, width, height, chartID, theme, scripts.String())
 
-	chartDir := filepath.Join(c.workspaceDir, ".neo-mcp", "charts")
+	dataDir := c.dataDir
+	if dataDir == "" {
+		dataDir = defaultDataDir()
+	}
+	chartDir := filepath.Join(dataDir, "charts")
 	if err := os.MkdirAll(chartDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create chart directory: %w", err)
 	}
@@ -334,15 +379,16 @@ func (c *Client) WriteChartHTML(ctx context.Context, chart map[string]any) (map[
 	if err := os.WriteFile(chartPath, []byte(html), 0o644); err != nil {
 		return nil, fmt.Errorf("write chart HTML: %w", err)
 	}
-	relativePath, err := filepath.Rel(c.workspaceDir, chartPath)
+	chartBaseURL, err := c.ensureChartServer(dataDir)
 	if err != nil {
-		return nil, fmt.Errorf("resolve chart link: %w", err)
+		return nil, err
 	}
 	return map[string]any{
 		"type":    "chart",
 		"chartID": chartID,
-		"file":    filepath.ToSlash(relativePath),
-		"link":    "./" + filepath.ToSlash(relativePath),
+		"file":    filepath.ToSlash(chartPath),
+		"link":    chartBaseURL + "/charts/" + url.PathEscape(chartID) + ".html",
+		"uri":     chartBaseURL + "/charts/" + url.PathEscape(chartID) + ".html",
 		"width":   width,
 		"height":  height,
 	}, nil

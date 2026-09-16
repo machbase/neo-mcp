@@ -15,7 +15,8 @@ The server communicates with machbase-neo over HTTP and SSH. The API token is pa
       "args": [
         "-server", "http://127.0.0.1:5654",
         "-token", "${input:machbaseToken}",
-        "-max-response-bytes", "2097152"
+        "-max-response-bytes", "2MB",
+        "-data-dir", "/tmp/neo-mcp-data"
       ]
     }
   },
@@ -30,7 +31,82 @@ The server communicates with machbase-neo over HTTP and SSH. The API token is pa
 }
 ```
 
-`-max-response-bytes` limits each HTTP response read by neo-mcp. The default is 2 MiB (`2097152` bytes). Set it explicitly in `mcp.json` when a workload needs a different limit, for example `10485760` for 10 MiB. Values less than or equal to zero are rejected.
+For CLI or Copilot CLI usage, prefer the environment variable so the token is
+not included in the process argument list:
+
+```sh
+export NEO_MCP_TOKEN='your-api-token'
+go run ./neo-mcp -server http://127.0.0.1:5654
+```
+
+`-token` takes precedence when supplied; otherwise neo-mcp reads
+`NEO_MCP_TOKEN`. Do not commit either form with a real token to a repository.
+
+`-max-response-bytes` limits each HTTP response read by neo-mcp. The default is `2MB` (`2097152` bytes). It accepts raw bytes or binary units such as `32KB`, `1MB`, and `1GB` (`KB/MB/GB` use powers of 1024). Values must be positive integers.
+
+`-data-dir` selects the root directory for generated neo-mcp artifacts. By
+default, neo-mcp uses the OS temporary directory with a process-specific path:
+`<temp>/neo-mcp-<pid>`. Charts are stored under its `charts/` subdirectory.
+Set this flag when generated artifacts must be retained in a specific location.
+Charts are served over a loopback HTTP port, so their links do not depend on
+the workspace location. Future generated artifacts can use sibling
+subdirectories under the same root.
+
+### Claude Desktop
+
+Add a local stdio server to Claude Desktop's MCP configuration. The exact
+configuration file location depends on the operating system and Claude Desktop
+installation.
+
+```json
+{
+  "mcpServers": {
+    "neo-mcp": {
+      "command": "go",
+      "args": [
+        "run", "/path/to/neo/neo-mcp",
+        "-server", "http://127.0.0.1:5654",
+        "-max-response-bytes", "2MB",
+        "-data-dir", "/tmp/neo-mcp-data"
+      ],
+      "env": {
+        "NEO_MCP_TOKEN": "your-api-token"
+      }
+    }
+  }
+}
+```
+
+For production use, replace `go run` with a built `neo-mcp` executable and
+store the token using the client's secret/environment mechanism when available.
+
+### ChatGPT
+
+ChatGPT MCP support is configured from the ChatGPT connector/developer MCP
+settings rather than `.vscode/mcp.json`. When the client supports a local
+stdio MCP server, use the same command and arguments as Claude Desktop:
+
+```json
+{
+  "name": "neo-mcp",
+  "transport": "stdio",
+  "command": "go",
+  "args": [
+    "run", "/path/to/neo/neo-mcp",
+    "-server", "http://127.0.0.1:5654",
+    "-max-response-bytes", "2MB",
+    "-data-dir", "/tmp/neo-mcp-data"
+  ],
+  "env": {
+    "NEO_MCP_TOKEN": "your-api-token"
+  }
+}
+```
+
+If the ChatGPT client only accepts a remote MCP endpoint, expose `neo-mcp`
+through an appropriate authenticated MCP transport or gateway. The standalone
+binary currently implements stdio transport; do not expose the machbase HTTP
+API token in a public URL or query parameter.
 
 ## Tools
 
