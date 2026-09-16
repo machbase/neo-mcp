@@ -10,6 +10,12 @@ user's timers, subscribers, or tokens.
 
 ## Tools
 
+- `fs_list` / `fs_read` — inspect directories and read supported files from the
+  machbase-neo server-side file system through `/db/files`. These paths are not
+  local workspace paths.
+- `fs_write` — overwrite a supported server-side file through `/db/files`. This
+  is a state-changing operation and requires explicit approval.
+
 - `render_markdown` — render Markdown text to HTML and execute fenced blocks.
   `sql` and `jsh` blocks require `{execute=true}`; `http` blocks execute by the
   established Markdown contract. Treat this as a side-effecting operation.
@@ -25,6 +31,20 @@ user's timers, subscribers, or tokens.
   be retrieved again afterward.
 
 ## Notes
+
+## Permission Profiles
+
+Use separate API token owners for separate environments. A production/shared
+profile such as `agent_ro` should receive only the database read access it
+needs and should normally use `fs_list`/`fs_read` without `fs_write`. An
+isolated development profile such as `agent_dev` may receive the write and
+execution tools required by tests. Configure database grants through the
+deployment administrator workflow; neo-mcp does not create users or grants.
+
+The `/db/files` endpoint uses API-token authentication, but the server-side
+file system is not a database permission sandbox. Enforce the read-only
+boundary at the MCP tool set, API token profile, and reverse proxy. For
+`agent_ro`, allow GET and block POST/PUT/DELETE on `/db/files/*path`.
 
 - `timer_add`/`subscriber_add` create schedules that execute a shell command string
   on trigger; treat the `command` argument as a real, side-effecting operation under

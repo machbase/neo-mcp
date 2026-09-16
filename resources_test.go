@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestReadManualSupportsRootAndNestedURI(t *testing.T) {
 	root, err := readManual("neo://manual/tql")
@@ -24,4 +28,34 @@ func TestReadManualRejectsTraversal(t *testing.T) {
 	if _, err := readManual("neo://manual/../go.mod"); err == nil {
 		t.Fatal("expected traversal URI to be rejected")
 	}
+}
+
+func TestTableListResourceParts(t *testing.T) {
+	tests := []struct {
+		uri         string
+		hasDatabase bool
+		database    string
+		prefix      string
+	}{
+		{"neo://machbase/tables", false, "", ""},
+		{"neo://machbase/tables/sensor", false, "", "sensor"},
+		{"neo://machbase/tables/otherdb", true, "otherdb", ""},
+		{"neo://machbase/tables/otherdb/sensor", true, "otherdb", "sensor"},
+	}
+
+	for _, test := range tests {
+		database, prefix, err := tableListResourceParts(test.uri, test.hasDatabase)
+		require.NoError(t, err, test.uri)
+		require.Equal(t, test.database, database, test.uri)
+		require.Equal(t, test.prefix, prefix, test.uri)
+	}
+}
+
+func TestTableResourcePart(t *testing.T) {
+	table, err := tableResourcePart("neo://machbase/table/sensor_data")
+	require.NoError(t, err)
+	require.Equal(t, "sensor_data", table)
+
+	_, err = tableResourcePart("neo://machbase/table/otherdb/sensor_data")
+	require.Error(t, err)
 }

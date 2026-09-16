@@ -87,6 +87,10 @@ CHART(
 
 The MCP server converts this chart envelope into self-contained HTML by loading `jsAssets` before `jsCodeAssets`, saves it under the workspace `.neo-mcp/charts/<chartID>.html`, and returns a workspace-relative Markdown link. In VS Code, click the link to open the chart in the editor or the default browser. The MCP server must not place the API token in the generated HTML.
 
+Use `fs_list` to discover server-side TQL files and `tql_run_file` to read and
+execute a selected `.tql` file. The file path is an SSFS server path, not a
+local workspace path.
+
 ## VS Code Copilot chart smoke test
 
 Ask Copilot:

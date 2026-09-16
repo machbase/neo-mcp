@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestClientQueryUsesBearerToken(t *testing.T) {
@@ -33,6 +34,52 @@ func TestClientQueryUsesBearerToken(t *testing.T) {
 	response, ok := result.(map[string]any)
 	if !ok || response["success"] != true {
 		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
+func TestClientQueryWithOptions(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Query().Get("q") != "select * from example limit ?" ||
+			request.URL.Query().Get("format") != "box" ||
+			request.URL.Query().Get("db") != "otherdb" ||
+			request.URL.Query().Get("precision") != "2" ||
+			request.URL.Query().Get("rownum") != "true" ||
+			request.URL.Query().Get("p") != "[10]" {
+			t.Fatalf("unexpected query parameters: %s", request.URL.RawQuery)
+		}
+		writer.Header().Set("Content-Type", "text/plain")
+		_, _ = writer.Write([]byte("+-----+\n| 10  |\n+-----+\n"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "nt_test", server.Client())
+	result, err := client.QueryWithOptions(context.Background(), "select * from example limit ?", map[string]any{
+		"format":    "box",
+		"db":        "otherdb",
+		"precision": float64(2),
+		"rownum":    true,
+		"p":         []any{10},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "+-----+\n| 10  |\n+-----+\n" {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
+func TestClientResponseLimit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "text/plain")
+		_, _ = writer.Write([]byte("1234567890"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "nt_test", server.Client())
+	client.SetMaxResponseBytes(5)
+	_, err := client.Query(context.Background(), "select 1")
+	if err == nil || !strings.Contains(err.Error(), "response exceeds maximum size") {
+		t.Fatalf("expected response limit error, got %v", err)
 	}
 }
 
@@ -63,6 +110,83 @@ func TestClientListTables(t *testing.T) {
 	}
 	data := result.(map[string]any)["data"].(map[string]any)
 	if data["rows"].([]any)[0].([]any)[0] != "sensor_data" {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
+func TestClientListDatabasesAndScopedTables(t *testing.T) {
+	var scripts []string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		scripts = append(scripts, string(body))
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"success":true,"data":{"columns":["NAME"],"rows":[]}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "nt_test", server.Client())
+	_, err := client.ListDatabases(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.ListTablesScoped(context.Background(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.ListTablesScoped(context.Background(), "", "sensor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.ListTablesScoped(context.Background(), "otherdb", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.ListTablesScoped(context.Background(), "otherdb", "sensor")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(scripts) != 5 {
+		t.Fatalf("unexpected script count: %d", len(scripts))
+	}
+	want := []string{
+		"SQL(`show databases`)\nJSON()\n",
+		"SQL(`show tables`)\nJSON()\n",
+		"SQL(`show tables like 'sensor%'`)\nJSON()\n",
+		"SQL(`show tables from otherdb`)\nJSON()\n",
+		"SQL(`show tables from otherdb like 'sensor%'`)\nJSON()\n",
+	}
+	for i := range want {
+		if scripts[i] != want[i] {
+			t.Errorf("script %d: got %q, want %q", i, scripts[i], want[i])
+		}
+	}
+}
+
+func TestClientCurrentSession(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(body) != "SQL(`select current_database(), current_user()`)\nJSON()\n" {
+			t.Fatalf("unexpected TQL: %q", body)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"success":true,"data":{"columns":["CURRENT_DATABASE","CURRENT_USER"],"rows":[["MACHBASEDB","sys"]]}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "nt_test", server.Client())
+	result, err := client.CurrentSession(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := result.(map[string]any)["data"].(map[string]any)
+	if data["rows"].([]any)[0].([]any)[0] != "MACHBASEDB" {
 		t.Fatalf("unexpected result: %#v", result)
 	}
 }
@@ -145,4 +269,149 @@ func TestClientRunTQL(t *testing.T) {
 	if result.(map[string]any)["success"] != true {
 		t.Fatalf("unexpected result: %#v", result)
 	}
+}
+
+func TestClientRunTQLPreservesTextOutput(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "text/plain")
+		_, _ = writer.Write([]byte("+-----+\n| 1   |\n+-----+\n"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "nt_test", server.Client())
+	result, err := client.RunTQL(context.Background(), "BOX()\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "+-----+\n| 1   |\n+-----+\n" {
+		t.Fatalf("unexpected TQL text result: %#v", result)
+	}
+}
+
+func TestClientServerFileAPI(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodPost && request.URL.Path == "/db/files/work/hello-world.tql" {
+			if request.Header.Get("Authorization") != "Bearer nt_test" {
+				t.Fatalf("unexpected authorization: %s", request.Header.Get("Authorization"))
+			}
+			body, err := io.ReadAll(request.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(body) != "FAKE(linspace(1, 2, 2))\nJSON()\n" {
+				t.Fatalf("unexpected written content: %q", body)
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write([]byte(`{"success":true,"reason":"success"}`))
+			return
+		}
+		if request.URL.Path == "/db/files/work" {
+			if request.URL.Query().Get("filter") != ".tql" || request.URL.Query().Get("recursive") != "true" {
+				t.Fatalf("unexpected file query: %s", request.URL.RawQuery)
+			}
+			if request.Header.Get("Authorization") != "Bearer nt_test" {
+				t.Fatalf("unexpected authorization: %s", request.Header.Get("Authorization"))
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write([]byte(`{"success":true,"data":{"isDir":true,"name":"work"}}`))
+			return
+		}
+		if request.URL.Path == "/db/files/work/query.tql" {
+			writer.Header().Set("Content-Type", "text/plain")
+			_, _ = writer.Write([]byte("FAKE(linspace(1, 2, 2))\nJSON()\n"))
+			return
+		}
+		if request.URL.Path == "/db/tql" {
+			body, err := io.ReadAll(request.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(body) != "FAKE(linspace(1, 2, 2))\nJSON()\n" {
+				t.Fatalf("unexpected TQL file content: %q", body)
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write([]byte(`{"success":true,"data":{"columns":["x"],"rows":[[1],[2]]}}`))
+			return
+		}
+		http.NotFound(writer, request)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "nt_test", server.Client())
+	result, err := client.ListFiles(context.Background(), "/work", ".tql", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.(map[string]any)["success"] != true {
+		t.Fatalf("unexpected list result: %#v", result)
+	}
+	content, err := client.ReadFile(context.Background(), "/work/query.tql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if content != "FAKE(linspace(1, 2, 2))\nJSON()\n" {
+		t.Fatalf("unexpected file content: %#v", content)
+	}
+	_, err = client.WriteFile(context.Background(), "/work/hello-world.tql", "FAKE(linspace(1, 2, 2))\nJSON()\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err = client.RunTQLFile(context.Background(), "/work/query.tql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.(map[string]any)["success"] != true {
+		t.Fatalf("unexpected TQL file result: %#v", result)
+	}
+}
+
+func TestNormalizeServerFilePath(t *testing.T) {
+	path, err := normalizeServerFilePath("work/a file.tql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/work/a%20file.tql" {
+		t.Fatalf("unexpected normalized path: %s", path)
+	}
+}
+
+func TestClientRunTQLCancellationClosesRequest(t *testing.T) {
+	requestStarted := make(chan struct{})
+	releaseHandler := make(chan struct{})
+	handlerDone := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		defer close(handlerDone)
+		close(requestStarted)
+		<-releaseHandler
+	}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	resultCh := make(chan error, 1)
+	client := NewClient(server.URL, "nt_test", server.Client())
+	go func() {
+		_, err := client.RunTQL(ctx, "FAKE(linspace(1, 2, 2))\nJSON()\n")
+		resultCh <- err
+	}()
+
+	select {
+	case <-requestStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("TQL request was not received")
+	}
+	cancel()
+	select {
+	case err := <-resultCh:
+		if err == nil {
+			t.Fatal("expected TQL cancellation error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("TQL client did not return after cancellation")
+	}
+	close(releaseHandler)
+	select {
+	case <-handlerDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("TQL fixture handler did not exit")
+	}
+	server.Close()
 }
