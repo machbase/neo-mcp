@@ -39,6 +39,34 @@ CSV()
   series (low `STDDEV`) makes a poor visualization demo even though the query
   itself succeeds.
 
+## SQL parameters
+
+`SQL()` supports positional `?` parameters and named parameters using `:name`
+placeholders. Named parameters are available since Machbase Neo v8.7.0 and are
+bound with `named(name, value)`:
+
+```tql
+SQL(`
+		SELECT TIME, VALUE
+		FROM EXAMPLE
+		WHERE NAME = :name
+			AND TIME BETWEEN :from_time AND :to_time
+`,
+		named('name', param('name') ?? 'temperature'),
+		named('from_time', param('from_time') ?? '2023-03-01 14:00:00'),
+		named('to_time', param('to_time') ?? '2023-03-01 14:10:00'))
+JSON()
+```
+
+Use positional binding when the SQL contains `?` placeholders:
+
+```tql
+SQL(`SELECT TIME, VALUE FROM EXAMPLE WHERE NAME = ? LIMIT ?`,
+		param('name') ?? 'temperature',
+		param('limit') ?? 10)
+JSON()
+```
+
 ## Minimal execution example
 
 For a JSON result from the `EXAMPLE` table, write and execute this through `tql_run`:

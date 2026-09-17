@@ -115,6 +115,76 @@ func TestClientListTables(t *testing.T) {
 	}
 }
 
+func TestClientListTagsUsesMetaTableTQL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/db/tql" {
+			t.Fatalf("unexpected path: %s %s", request.Method, request.URL.Path)
+		}
+		if request.Header.Get("Authorization") != "Bearer nt_test" {
+			t.Fatalf("unexpected authorization header: %s", request.Header.Get("Authorization"))
+		}
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(body) != "SQL(`select _ID, NAME from _example_meta`)\nJSON()\n" {
+			t.Fatalf("unexpected TQL: %q", body)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"success":true,"data":{"columns":["_ID","NAME"],"rows":[[1,"temperature"]]}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "nt_test", server.Client())
+	result, err := client.ListTags(context.Background(), "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := result.(map[string]any)["data"].(map[string]any)
+	if data["rows"].([]any)[0].([]any)[1] != "temperature" {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
+func TestClientListTagsRejectsInvalidTableName(t *testing.T) {
+	client := NewClient("http://example.invalid", "nt_test", nil)
+	_, err := client.ListTags(context.Background(), "example;drop table users")
+	if err == nil || !strings.Contains(err.Error(), "invalid table name") {
+		t.Fatalf("expected invalid table name error, got %v", err)
+	}
+}
+
+func TestClientTagStatUsesDatabaseQuery(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/db/query" {
+			t.Fatalf("unexpected path: %s %s", request.Method, request.URL.Path)
+		}
+		if request.Header.Get("Authorization") != "Bearer nt_test" {
+			t.Fatalf("unexpected authorization header: %s", request.Header.Get("Authorization"))
+		}
+		if request.URL.Query().Get("p") != `["temperature"]` {
+			t.Fatalf("unexpected query parameters: %s", request.URL.RawQuery)
+		}
+		if !strings.Contains(request.URL.Query().Get("q"), "FROM V$example_STAT") ||
+			!strings.Contains(request.URL.Query().Get("q"), "WHERE NAME = ?") {
+			t.Fatalf("unexpected query: %q", request.URL.Query().Get("q"))
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"success":true,"data":{"columns":["NAME","ROW_COUNT"],"rows":[["temperature",3]]}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "nt_test", server.Client())
+	result, err := client.TagStat(context.Background(), "example", "temperature")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := result.(map[string]any)["data"].(map[string]any)
+	if data["rows"].([]any)[0].([]any)[0] != "temperature" {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
 func TestClientListDatabasesAndScopedTables(t *testing.T) {
 	var scripts []string
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

@@ -665,13 +665,24 @@ func (c *Client) DescribeTable(ctx context.Context, table string) (any, error) {
 }
 
 func (c *Client) ListTags(ctx context.Context, table string) (any, error) {
-	result, _, err := c.doJSON(ctx, http.MethodGet, "/web/api/tables/"+url.PathEscape(table)+"/tags", nil, nil)
-	return result, err
+	if !tableIdentifierPattern.MatchString(table) {
+		return nil, fmt.Errorf("invalid table name %q", table)
+	}
+	query := fmt.Sprintf("select _ID, NAME from _%s_meta", table)
+	return c.RunTQL(ctx, "SQL(`"+query+"`)\nJSON()\n")
 }
 
 func (c *Client) TagStat(ctx context.Context, table, tag string) (any, error) {
-	result, _, err := c.doJSON(ctx, http.MethodGet, "/web/api/tables/"+url.PathEscape(table)+"/tags/"+url.PathEscape(tag)+"/stat", nil, nil)
-	return result, err
+	if !tableIdentifierPattern.MatchString(table) {
+		return nil, fmt.Errorf("invalid table name %q", table)
+	}
+	query := fmt.Sprintf(`SELECT NAME, ROW_COUNT,
+MIN_TIME, MAX_TIME,
+MIN_VALUE, MIN_VALUE_TIME, MAX_VALUE, MAX_VALUE_TIME,
+RECENT_ROW_TIME
+FROM V$%s_STAT
+WHERE NAME = ?`, table)
+	return c.QueryWithOptions(ctx, query, map[string]any{"p": []any{tag}})
 }
 
 // ServicePort describes a machbase-neo listener address as reported by the
