@@ -2,6 +2,27 @@
 
 `neo-mcp` exposes machbase-neo database, TQL, JSH, Markdown, and server-side file operations to an MCP client such as VS Code Copilot.
 
+## Install
+
+Install the latest release for the current Linux or macOS architecture:
+
+```sh
+curl -fsSL https://github.com/machbase/neo-mcp/releases/latest/download/install.sh | sh
+```
+
+Install the latest release for the current Windows architecture from PowerShell:
+
+```powershell
+irm https://github.com/machbase/neo-mcp/releases/latest/download/install.ps1 | iex
+```
+
+The installers support `amd64` and `arm64`. Linux and macOS install to
+`~/.local/bin` by default; Windows installs to `%LOCALAPPDATA%\neo-mcp\bin`.
+Set `NEO_MCP_INSTALL_DIR` to choose another directory, then ensure that
+directory is on `PATH` before configuring the MCP client. To install a release
+candidate or a specific version, set `NEO_MCP_VERSION` to its tag, such as
+`NEO_MCP_VERSION=v1.0.1-rc1`.
+
 ## Configuration
 
 The server communicates with machbase-neo over HTTP and SSH. The API token is passed to HTTP endpoints as `Authorization: Bearer <token>` and is also used for the SSH JSH authentication flow.
