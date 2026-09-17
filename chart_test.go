@@ -39,10 +39,10 @@ func TestWriteChartHTMLCreatesWorkspaceLink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if link, ok := result["link"].(string); !ok || !strings.HasPrefix(link, "http://127.0.0.1:") || !strings.HasSuffix(link, "/chart_test.html") {
+	if link, ok := result["link"].(string); !ok || !strings.HasPrefix(link, "http://127.0.0.1:") || !strings.HasSuffix(link, "/mcp/charts/chart_test.html") {
 		t.Fatalf("unexpected chart link: %#v", result["link"])
 	}
-	if uri, ok := result["uri"].(string); !ok || !strings.HasPrefix(uri, "http://127.0.0.1:") || !strings.HasSuffix(uri, "/charts/chart_test.html") {
+	if uri, ok := result["uri"].(string); !ok || !strings.HasPrefix(uri, "http://127.0.0.1:") || !strings.HasSuffix(uri, "/mcp/charts/chart_test.html") {
 		t.Fatalf("unexpected chart URI: %#v", result["uri"])
 	}
 	response, err := http.Get(result["uri"].(string))
@@ -76,6 +76,17 @@ func TestChartToolResultUsesAbsoluteFileLink(t *testing.T) {
 	}
 	if !strings.Contains(text.Text, "(http://127.0.0.1:12345/charts/chart.html)") {
 		t.Fatalf("chart link is not absolute: %s", text.Text)
+	}
+}
+
+func TestTQLFileLinkResultUsesClickableLink(t *testing.T) {
+	result := tqlFileLinkResult("/work/chart.tql", "https://neo.example/db/tql/work/chart.tql", "application/json", map[string]any{"success": true})
+	text, ok := result.Content[0].(mcp.TextContent)
+	if !ok {
+		t.Fatalf("unexpected TQL file content type: %#v", result.Content[0])
+	}
+	if !strings.Contains(text.Text, "[Open TQL](https://neo.example/db/tql/work/chart.tql)") || !strings.Contains(text.Text, `"success": true`) {
+		t.Fatalf("TQL file link result is not clickable or verified: %s", text.Text)
 	}
 }
 
@@ -122,7 +133,7 @@ CHART(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if link, ok := fileResult["link"].(string); !ok || !strings.HasPrefix(link, "http://127.0.0.1:") || !strings.HasSuffix(link, "/charts/chart_smoke.html") {
+	if link, ok := fileResult["link"].(string); !ok || !strings.HasPrefix(link, "http://127.0.0.1:") || !strings.HasSuffix(link, "/mcp/charts/chart_smoke.html") {
 		t.Fatalf("unexpected chart file result: %#v", fileResult)
 	}
 }

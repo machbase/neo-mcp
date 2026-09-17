@@ -5,7 +5,7 @@ Use the `jsh_exec` and `jsh_run_command` tools to execute JSH through the existi
 - `jsh_run_command` connects with the reserved `neo-mcp` SSH username and enters full neo-shell. This shell has already logged into the database (`NEOSHELL_*` env), mounts `/usr/bin` and `/usr/lib`, and exposes DB client commands (`sql`, `show`, `import`, `export`). Use it to run an existing neo-shell/JSH command line, including the neo-shell `jsh` alias for interactive-style usage.
 - `jsh_exec` connects with the reserved `neo-mcp:jsh` SSH username, which selects the raw `jsh` shellId directly (bypassing neo-shell). The SSH exec command is `-C "<script>"`, handled by the jsh engine's own `-C` flag: the script runs once and the process exits. This is required because neo-shell's `jsh` alias (`/sbin/shell.js`) ignores `-C` and always starts an interactive REPL, which hangs forever on a non-interactive SSH exec.
 
-**Important trade-off for `jsh_exec`:** the raw `jsh` shellId has no DB session, no `NEOSHELL_*` login, and no `/usr/bin` commands. The server's reserved JSH command supplies its configured `-v` mounts, so server SSFS files are normally visible under `/work`; for example, a file written through `fs_write("/analyze.js", ...)` is executed with `require('/work/analyze.js')`. A script that needs the database must open its own connection explicitly with `require('machcli')` and credentials, or use `jsh_run_command` instead if it depends on an already-authenticated session or `/usr/bin` commands.
+**Important trade-off for `jsh_exec`:** the raw `jsh` shellId has no DB session, no `NEOSHELL_*` login, and no `/usr/bin` commands. Use the MCP `/project` namespace for files; for example, write `/project/analyze.js` and run it with `jsh_run_file`. The tool resolves that public path internally as `/work/analyze.js`. A script that needs the database must open its own connection explicitly with `require('machcli')` and credentials, or use `jsh_run_command` instead if it depends on an already-authenticated session or `/usr/bin` commands.
 
 ## Runtime constraints
 
@@ -48,6 +48,7 @@ Before writing a non-trivial script, inspect the available module/export metadat
 ## Execution workflow
 
 1. `jsh_exec` (inline script): connects as `neo-mcp:jsh` and runs `-C "<script>"` through the raw jsh engine — one-shot execution, no DB session, no `/usr/bin`.
-2. `jsh_run_command` (existing command): connects as `neo-mcp` and runs the given command line inside full neo-shell — DB session and `/usr/bin` commands (`sql`, `show`, `import`, `export`) are available.
+2. `jsh_run_file` (server file): runs a `.js` file from the MCP `/project` namespace through raw JSH, mapping `/project/example.js` to `/work/example.js`.
+3. `jsh_run_command` (existing command): connects as `neo-mcp` and runs the given command line inside full neo-shell — DB session and `/usr/bin` commands (`sql`, `show`, `import`, `export`) are available.
 3. Keep stdout useful and concise so the result can be interpreted by the agent.
 4. Treat file, network, database, and shell side effects as real operations controlled by the token owner's permissions.

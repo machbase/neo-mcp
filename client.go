@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	pathpkg "path"
@@ -87,7 +88,34 @@ func (c *Client) ensureChartServer(chartDir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("start chart server: %w", err)
 	}
-	server := &http.Server{Handler: http.FileServer(http.Dir(chartDir))}
+	target, err := url.Parse(c.baseURL)
+	if err != nil {
+		_ = listener.Close()
+		return "", fmt.Errorf("parse server URL: %w", err)
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	originalDirector := proxy.Director
+	proxy.Director = func(request *http.Request) {
+		originalDirector(request)
+		if c.token == "" {
+			request.Header.Del("Authorization")
+		} else {
+			request.Header.Set("Authorization", "Bearer "+c.token)
+		}
+	}
+	localFiles := http.StripPrefix("/mcp", http.FileServer(http.Dir(chartDir)))
+	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if strings.HasPrefix(request.URL.Path, "/mcp/") {
+			localFiles.ServeHTTP(writer, request)
+			return
+		}
+		if isMachbaseProxyPath(request.URL.Path) {
+			proxy.ServeHTTP(writer, request)
+			return
+		}
+		http.NotFound(writer, request)
+	})
+	server := &http.Server{Handler: handler}
 	c.chartServer = server
 	c.chartListener = listener
 	c.chartBaseURL = "http://" + listener.Addr().String()
@@ -95,6 +123,15 @@ func (c *Client) ensureChartServer(chartDir string) (string, error) {
 		_ = server.Serve(listener)
 	}()
 	return c.chartBaseURL, nil
+}
+
+func isMachbaseProxyPath(requestPath string) bool {
+	for _, prefix := range []string{"/db", "/web", "/metrics", "/debug"} {
+		if requestPath == prefix || strings.HasPrefix(requestPath, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Client) readResponseBody(reader io.Reader) ([]byte, error) {
@@ -201,7 +238,7 @@ func (c *Client) RunTQL(ctx context.Context, script string) (any, error) {
 }
 
 func (c *Client) ListFiles(ctx context.Context, remotePath, filter string, recursive bool) (any, error) {
-	path, err := normalizeServerFilePath(remotePath)
+	path, err := normalizeMCPFilePath(remotePath)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +254,7 @@ func (c *Client) ListFiles(ctx context.Context, remotePath, filter string, recur
 }
 
 func (c *Client) ReadFile(ctx context.Context, remotePath string) (any, error) {
-	path, err := normalizeServerFilePath(remotePath)
+	path, err := normalizeMCPFilePath(remotePath)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +263,7 @@ func (c *Client) ReadFile(ctx context.Context, remotePath string) (any, error) {
 }
 
 func (c *Client) WriteFile(ctx context.Context, remotePath, content string) (any, error) {
-	path, err := normalizeServerFilePath(remotePath)
+	path, err := normalizeMCPFilePath(remotePath)
 	if err != nil {
 		return nil, err
 	}
@@ -275,6 +312,41 @@ func (c *Client) RunTQLFile(ctx context.Context, remotePath string) (any, error)
 	return c.RunTQL(ctx, script)
 }
 
+func (c *Client) TQLFileURL(remotePath string) (string, error) {
+	path, err := normalizeMCPFilePath(remotePath)
+	if err != nil {
+		return "", err
+	}
+	if !strings.HasSuffix(strings.ToLower(path), ".tql") {
+		return "", fmt.Errorf("TQL file must have .tql extension: %q", remotePath)
+	}
+	return c.baseURL + "/db/tql" + path, nil
+}
+
+func (c *Client) BrowserTQLFileURL(remotePath string) (string, error) {
+	path, err := normalizeMCPFilePath(remotePath)
+	if err != nil {
+		return "", err
+	}
+	if !strings.HasSuffix(strings.ToLower(path), ".tql") {
+		return "", fmt.Errorf("TQL file must have .tql extension: %q", remotePath)
+	}
+	baseURL, err := c.ensureChartServer(c.dataDir)
+	if err != nil {
+		return "", err
+	}
+	return baseURL + "/db/tql" + path, nil
+}
+
+func (c *Client) VerifyTQLFile(ctx context.Context, remotePath string) (any, string, error) {
+	target, err := c.TQLFileURL(remotePath)
+	if err != nil {
+		return nil, "", err
+	}
+	result, contentType, err := c.doJSON(ctx, http.MethodGet, strings.TrimPrefix(target, c.baseURL), nil, nil)
+	return result, contentType, err
+}
+
 func normalizeServerFilePath(rawPath string) (string, error) {
 	if strings.ContainsRune(rawPath, 0) {
 		return "", fmt.Errorf("invalid server file path")
@@ -289,6 +361,30 @@ func normalizeServerFilePath(rawPath string) (string, error) {
 		escaped[i] = url.PathEscape(part)
 	}
 	return "/" + strings.Join(escaped, "/"), nil
+}
+
+// normalizeMCPFilePath keeps the public MCP namespace separate from the
+// server's SSFS and JSH mount paths. /project/foo maps to API /foo.
+func normalizeMCPFilePath(rawPath string) (string, error) {
+	cleanPath := pathpkg.Clean("/" + strings.TrimSpace(rawPath))
+	if cleanPath == "/" || cleanPath == "/project" {
+		return "/", nil
+	}
+	if !strings.HasPrefix(cleanPath, "/project/") {
+		return "", fmt.Errorf("MCP file path must use the /project namespace: %q", rawPath)
+	}
+	return normalizeServerFilePath(strings.TrimPrefix(cleanPath, "/project/"))
+}
+
+func normalizeJSHFilePath(rawPath string) (string, error) {
+	apiPath, err := normalizeMCPFilePath(rawPath)
+	if err != nil {
+		return "", err
+	}
+	if apiPath == "/" {
+		return "", fmt.Errorf("JSH file path must identify a file: %q", rawPath)
+	}
+	return "/work" + apiPath, nil
 }
 
 func (c *Client) ListDatabases(ctx context.Context) (any, error) {
@@ -387,8 +483,8 @@ func (c *Client) WriteChartHTML(ctx context.Context, chart map[string]any) (map[
 		"type":    "chart",
 		"chartID": chartID,
 		"file":    filepath.ToSlash(chartPath),
-		"link":    chartBaseURL + "/charts/" + url.PathEscape(chartID) + ".html",
-		"uri":     chartBaseURL + "/charts/" + url.PathEscape(chartID) + ".html",
+		"link":    chartBaseURL + "/mcp/charts/" + url.PathEscape(chartID) + ".html",
+		"uri":     chartBaseURL + "/mcp/charts/" + url.PathEscape(chartID) + ".html",
 		"width":   width,
 		"height":  height,
 	}, nil

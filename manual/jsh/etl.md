@@ -50,8 +50,8 @@ available through `db.tx()` or `conn.tx()` only for regular tables created with
 manual_read(neo://manual/jsh)
 manual_read(neo://manual/jsh/machcli)
 manual_read(neo://manual/jsh/etl)
-fs_write(/etl_example.js, script)
-jsh_exec(require('/work/etl_example.js'))
+fs_write(/project/etl_example.js, script)
+jsh_run_file(/project/etl_example.js)
 ```
 
 Keep stdout concise: report counts, rejected rows, and destination status rather

@@ -40,6 +40,31 @@ Use names such as `row_count`, `record_count`, `total_value`, `min_value`,
 rename the alias before changing the query logic. Do not quote a questionable
 alias as the first workaround; prefer a safe unquoted identifier.
 
+## Table Record Counts
+
+Call `db_list_tables` before generating a query that references table names.
+Use the returned identifiers as the source of truth, and count each table with
+`COUNT(*) AS record_count`.
+
+Do not mix a literal table label with `COUNT(*)` in the same aggregate
+`SELECT` unless the database accepts the required grouping expression. For
+example, `SELECT 'EXAMPLE' AS table_name, COUNT(*) FROM EXAMPLE` can fail with
+`MACHCLI-ERR-2044` because the literal is not a group-by expression.
+
+To collect counts from multiple known tables, use one aggregate query per
+table with `UNION ALL`. This reliably produces one count per table; a caller
+such as TQL can attach the corresponding table labels after the query.
+
+```sql
+SELECT COUNT(*) AS record_count FROM COMPLEX
+UNION ALL
+SELECT COUNT(*) AS record_count FROM EXAMPLE
+```
+
+Do not rely on a `DUAL` table for a single-row source: it may not exist in a
+Machbase database. For a human-readable result through the query API, pass
+`format=box`; for a TQL result, use the `BOX()` sink.
+
 ## Frequently Used SQL Functions
 
 Canonical complete reference:

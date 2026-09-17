@@ -29,6 +29,25 @@ func registerJSHTools(mcpServer *server.MCPServer, client *SSHClient) {
 	)
 
 	mcpServer.AddTool(
+		mcp.NewTool("jsh_run_file",
+			mcp.WithTitleAnnotation("Run server JSH file"),
+			mcp.WithDescription("Run a JavaScript file from the MCP /project namespace through the raw jsh engine. The file is resolved internally as /work/<path>; do not pass /work paths directly. Read neo://manual/jsh first."),
+			mcp.WithReadOnlyHintAnnotation(false),
+			mcp.WithDestructiveHintAnnotation(true),
+			mcp.WithIdempotentHintAnnotation(false),
+			mcp.WithString("path", mcp.Required(), mcp.Description("MCP server file path under /project, for example /project/analyze.js")),
+		),
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			path, err := requireArgument(request.Params.Arguments, "path")
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			result, err := client.RunJSHFile(ctx, path)
+			return jshToolResult(result, err)
+		},
+	)
+
+	mcpServer.AddTool(
 		mcp.NewTool("jsh_run_command",
 			mcp.WithTitleAnnotation("Run Machbase JSH command"),
 			mcp.WithDescription("Run an existing neo-shell/JSH command (e.g. sql, show, import, export) through full neo-shell (SSH user neo-mcp), with an already-authenticated DB session. Read neo://manual/jsh first."),

@@ -11,11 +11,11 @@ func registerFileTools(mcpServer *server.MCPServer, client *Client) {
 	mcpServer.AddTool(
 		mcp.NewTool("fs_list",
 			mcp.WithTitleAnnotation("List server files"),
-			mcp.WithDescription("List supported files and directories on the machbase-neo server. Paths are server-side SSFS paths, not local workspace paths."),
+			mcp.WithDescription("List files and directories in the MCP /project namespace. For example, /project lists the server work area; do not use internal /work paths."),
 			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithDestructiveHintAnnotation(false),
 			mcp.WithIdempotentHintAnnotation(true),
-			mcp.WithString("path", mcp.Description("Server-side directory path; defaults to /")),
+			mcp.WithString("path", mcp.Description("MCP server directory path under /project; defaults to /project")),
 			mcp.WithString("filter", mcp.Description("Optional server file extension filter, for example .tql or .md")),
 			mcp.WithBoolean("recursive", mcp.Description("Include recursive directory entries when supported")),
 		),
@@ -32,11 +32,11 @@ func registerFileTools(mcpServer *server.MCPServer, client *Client) {
 	mcpServer.AddTool(
 		mcp.NewTool("fs_read",
 			mcp.WithTitleAnnotation("Read server file"),
-			mcp.WithDescription("Read a supported file from the machbase-neo server-side file system. Paths are server-side SSFS paths, not local workspace paths."),
+			mcp.WithDescription("Read a supported file from the MCP /project namespace. Do not use the internal JSH /work path."),
 			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithDestructiveHintAnnotation(false),
 			mcp.WithIdempotentHintAnnotation(true),
-			mcp.WithString("path", mcp.Required(), mcp.Description("Server-side file path")),
+			mcp.WithString("path", mcp.Required(), mcp.Description("MCP server file path under /project")),
 		),
 		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			remotePath, err := requireArgument(request.Params.Arguments, "path")
@@ -51,11 +51,11 @@ func registerFileTools(mcpServer *server.MCPServer, client *Client) {
 	mcpServer.AddTool(
 		mcp.NewTool("fs_write",
 			mcp.WithTitleAnnotation("Write server file"),
-			mcp.WithDescription("Write content to a supported file on the machbase-neo server-side file system. This changes server state; paths are server-side SSFS paths."),
+			mcp.WithDescription("Write content to a supported file in the MCP /project namespace. This changes server state; do not use internal /work paths."),
 			mcp.WithReadOnlyHintAnnotation(false),
 			mcp.WithDestructiveHintAnnotation(true),
 			mcp.WithIdempotentHintAnnotation(true),
-			mcp.WithString("path", mcp.Required(), mcp.Description("Server-side file path")),
+			mcp.WithString("path", mcp.Required(), mcp.Description("MCP server file path under /project")),
 			mcp.WithString("content", mcp.Required(), mcp.Description("Complete file content")),
 		),
 		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

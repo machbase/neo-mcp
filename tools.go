@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -44,6 +45,32 @@ func registerReadOnlyTools(mcpServer *server.MCPServer, client *Client) {
 			}
 			result, err := client.RunTQLFile(ctx, remotePath)
 			return tqlToolResult(ctx, client, result, err)
+		},
+	)
+
+	mcpServer.AddTool(
+		mcp.NewTool("tql_file_link",
+			mcp.WithTitleAnnotation("Verify and link server TQL file"),
+			mcp.WithDescription("Execute a server-side .tql file through the configured /db/tql/<path>.tql reading API, then return a browser URL and verification result. The loopback browser URL proxies /db, /web, /metrics, and /debug requests with the configured MCP token; the token is not included in the URL."),
+			mcp.WithReadOnlyHintAnnotation(false),
+			mcp.WithDestructiveHintAnnotation(true),
+			mcp.WithIdempotentHintAnnotation(false),
+			mcp.WithString("path", mcp.Required(), mcp.Description("Server-side .tql file path")),
+		),
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			remotePath, err := requireArgument(request.Params.Arguments, "path")
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			result, contentType, err := client.VerifyTQLFile(ctx, remotePath)
+			if err != nil {
+				return toolResult(nil, err)
+			}
+			url, err := client.BrowserTQLFileURL(remotePath)
+			if err != nil {
+				return toolResult(nil, err)
+			}
+			return tqlFileLinkResult(remotePath, url, contentType, result), nil
 		},
 	)
 
@@ -188,6 +215,14 @@ func tqlToolResult(ctx context.Context, client *Client, result any, err error) (
 func chartToolResult(chartFile map[string]any) *mcp.CallToolResult {
 	link := stringValue(chartFile["uri"], stringValue(chartFile["link"], ""))
 	return mcp.NewToolResultText(fmt.Sprintf("Interactive chart: [Open chart](%s)", link))
+}
+
+func tqlFileLinkResult(path, link, contentType string, result any) *mcp.CallToolResult {
+	verification, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error())
+	}
+	return mcp.NewToolResultText(fmt.Sprintf("Verified TQL file `%s`: [Open TQL](%s)\n\nContent-Type: `%s`\n\nVerification result:\n```json\n%s\n```", path, link, contentType, verification))
 }
 
 func registerManualTool(mcpServer *server.MCPServer) {

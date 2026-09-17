@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -290,7 +291,7 @@ func TestClientRunTQLPreservesTextOutput(t *testing.T) {
 
 func TestClientServerFileAPI(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Method == http.MethodPost && request.URL.Path == "/db/files/work/hello-world.tql" {
+		if request.Method == http.MethodPost && request.URL.Path == "/db/files/hello-world.tql" {
 			if request.Header.Get("Authorization") != "Bearer nt_test" {
 				t.Fatalf("unexpected authorization: %s", request.Header.Get("Authorization"))
 			}
@@ -305,7 +306,7 @@ func TestClientServerFileAPI(t *testing.T) {
 			_, _ = writer.Write([]byte(`{"success":true,"reason":"success"}`))
 			return
 		}
-		if request.URL.Path == "/db/files/work" {
+		if request.URL.Path == "/db/files/" {
 			if request.URL.Query().Get("filter") != ".tql" || request.URL.Query().Get("recursive") != "true" {
 				t.Fatalf("unexpected file query: %s", request.URL.RawQuery)
 			}
@@ -316,9 +317,17 @@ func TestClientServerFileAPI(t *testing.T) {
 			_, _ = writer.Write([]byte(`{"success":true,"data":{"isDir":true,"name":"work"}}`))
 			return
 		}
-		if request.URL.Path == "/db/files/work/query.tql" {
+		if request.URL.Path == "/db/files/query.tql" {
 			writer.Header().Set("Content-Type", "text/plain")
 			_, _ = writer.Write([]byte("FAKE(linspace(1, 2, 2))\nJSON()\n"))
+			return
+		}
+		if request.Method == http.MethodGet && request.URL.Path == "/db/tql/query.tql" {
+			if request.Header.Get("Authorization") != "Bearer nt_test" {
+				t.Fatalf("unexpected authorization: %s", request.Header.Get("Authorization"))
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write([]byte(`{"success":true,"data":{"columns":["x"],"rows":[[1],[2]]}}`))
 			return
 		}
 		if request.URL.Path == "/db/tql" {
@@ -338,30 +347,44 @@ func TestClientServerFileAPI(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, "nt_test", server.Client())
-	result, err := client.ListFiles(context.Background(), "/work", ".tql", true)
+	result, err := client.ListFiles(context.Background(), "/project", ".tql", true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.(map[string]any)["success"] != true {
 		t.Fatalf("unexpected list result: %#v", result)
 	}
-	content, err := client.ReadFile(context.Background(), "/work/query.tql")
+	content, err := client.ReadFile(context.Background(), "/project/query.tql")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if content != "FAKE(linspace(1, 2, 2))\nJSON()\n" {
 		t.Fatalf("unexpected file content: %#v", content)
 	}
-	_, err = client.WriteFile(context.Background(), "/work/hello-world.tql", "FAKE(linspace(1, 2, 2))\nJSON()\n")
+	_, err = client.WriteFile(context.Background(), "/project/hello-world.tql", "FAKE(linspace(1, 2, 2))\nJSON()\n")
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err = client.RunTQLFile(context.Background(), "/work/query.tql")
+	result, err = client.RunTQLFile(context.Background(), "/project/query.tql")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.(map[string]any)["success"] != true {
 		t.Fatalf("unexpected TQL file result: %#v", result)
+	}
+	result, contentType, err := client.VerifyTQLFile(context.Background(), "/project/query.tql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contentType != "application/json" || result.(map[string]any)["success"] != true {
+		t.Fatalf("unexpected external TQL result: type=%q result=%#v", contentType, result)
+	}
+	url, err := client.TQLFileURL("/project/query.tql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if url != server.URL+"/db/tql/query.tql" {
+		t.Fatalf("unexpected TQL file URL: %s", url)
 	}
 }
 
@@ -372,6 +395,95 @@ func TestNormalizeServerFilePath(t *testing.T) {
 	}
 	if path != "/work/a%20file.tql" {
 		t.Fatalf("unexpected normalized path: %s", path)
+	}
+}
+
+func TestNormalizeMCPFilePathMapsProjectNamespace(t *testing.T) {
+	path, err := normalizeMCPFilePath("/project/a file.tql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/a%20file.tql" {
+		t.Fatalf("unexpected API path: %s", path)
+	}
+	if _, err := normalizeMCPFilePath("/work/a.tql"); err == nil {
+		t.Fatal("expected internal /work path to be rejected")
+	}
+}
+
+func TestBrowserTQLURLProxiesMachbaseToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/db/tql/query.tql" || request.URL.Query().Get("x") != "1" {
+			t.Fatalf("unexpected proxied request: %s", request.URL.RequestURI())
+		}
+		if request.Header.Get("Authorization") != "Bearer nt_test" {
+			t.Fatalf("unexpected authorization header: %s", request.Header.Get("Authorization"))
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"success":true}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "nt_test", server.Client())
+	client.SetDataDir(t.TempDir())
+	defer client.Close()
+	link, err := client.BrowserTQLFileURL("/project/query.tql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(link, "nt_test") || !strings.Contains(link, "/db/tql/query.tql") {
+		t.Fatalf("unexpected browser link: %s", link)
+	}
+	request, err := http.NewRequest(http.MethodGet, link+"?x=1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer browser-token")
+	response, err := client.httpClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected proxy status: %d", response.StatusCode)
+	}
+}
+
+func TestBrowserServerSeparatesMCPFilesFromProxy(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	defer server.Close()
+
+	dataDir := t.TempDir()
+	chartDir := dataDir + "/charts"
+	if err := os.MkdirAll(chartDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(chartDir+"/sample.html", []byte("chart"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	client := NewClient(server.URL, "nt_test", server.Client())
+	client.SetDataDir(dataDir)
+	defer client.Close()
+	link, err := client.BrowserTQLFileURL("/project/query.tql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := strings.TrimSuffix(link, "/db/tql/query.tql")
+	response, err := http.Get(base + "/mcp/charts/sample.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected chart status: %d", response.StatusCode)
+	}
+	response, err = http.Get(base + "/other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("unexpected unregistered path status: %d", response.StatusCode)
 	}
 }
 

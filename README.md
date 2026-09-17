@@ -112,11 +112,15 @@ API token in a public URL or query parameter.
 
 - `db_query`: execute SQL with HTTP query options such as `format`, `timeformat`, `tz`, `db`, and bind parameters.
 - `tql_run` and `tql_run_file`: execute inline TQL or a server-side `.tql` file.
-- `jsh_exec` and `jsh_run_command`: execute JSH through the SSH service.
+- `tql_file_link`: execute a server-side `.tql` through `/db/tql/<path>.tql` and return a loopback browser URL plus verification result; the loopback proxy adds the configured token and combines naturally with `fs_write` for iterative authoring.
+- `jsh_exec`, `jsh_run_file`, and `jsh_run_command`: execute JSH through the SSH service; `jsh_run_file` accepts MCP paths under `/project` and maps them internally to the JSH `/work` mount.
 - `render_markdown`: render Markdown and execute executable SQL, JSH, and HTTP fences according to the Markdown contract.
 - `fs_list`, `fs_read`, and `fs_write`: inspect and modify the server-side SSFS through the API-token `/db/files/*path` endpoint.
 
-Server-side file paths are not local workspace paths. Use `fs_list` to discover files before using `fs_read`, `fs_write`, or `tql_run_file`.
+Server-side file paths are not local workspace paths. MCP file tools use the
+logical `/project` namespace; for example, use `/project/query.tql` with
+`fs_read`, `fs_write`, `tql_run_file`, or `tql_file_link`. The internal JSH
+mount path `/work` must not be passed to MCP tools.
 
 ## Permissions
 

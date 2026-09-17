@@ -11,10 +11,11 @@ user's timers, subscribers, or tokens.
 ## Tools
 
 - `fs_list` / `fs_read` — inspect directories and read supported files from the
-  machbase-neo server-side file system through `/db/files`. These paths are not
-  local workspace paths.
-- `fs_write` — overwrite a supported server-side file through `/db/files`. This
-  is a state-changing operation and requires explicit approval.
+  MCP `/project` namespace through `/db/files`. These paths are not local
+  workspace paths.
+- `fs_write` — overwrite a supported file in the MCP `/project` namespace
+  through `/db/files`. This is a state-changing operation and requires
+  explicit approval.
 
 - `render_markdown` — render Markdown text to HTML and execute fenced blocks.
   `sql` and `jsh` blocks require `{execute=true}`; `http` blocks execute by the

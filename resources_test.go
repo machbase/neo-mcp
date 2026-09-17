@@ -15,6 +15,14 @@ func TestReadManualSupportsRootAndNestedURI(t *testing.T) {
 		t.Fatal("expected TQL manual content")
 	}
 
+	sql, err := readManual("neo://manual/sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sql) == 0 {
+		t.Fatal("expected SQL manual content")
+	}
+
 	nested, err := readManual("neo://manual/tql/overview")
 	if err != nil {
 		t.Fatal(err)

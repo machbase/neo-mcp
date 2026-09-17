@@ -85,7 +85,7 @@ CHART(
 )
 ```
 
-The MCP server converts this chart envelope into self-contained HTML by loading `jsAssets` before `jsCodeAssets`, saves it under `<temp>/neo-mcp-<pid>/charts/<chartID>.html` by default, and serves the shared data root through a loopback HTTP server on an ephemeral `127.0.0.1` port. Use `-data-dir` to select another artifact root; charts are always stored in its `charts/` subdirectory and are linked as `http://127.0.0.1:<port>/charts/<chartID>.html`. The link opens in a browser instead of being resolved as a workspace editor file. The MCP server must not place the API token in the generated HTML.
+The MCP server converts this chart envelope into self-contained HTML by loading `jsAssets` before `jsCodeAssets`, saves it under `<temp>/neo-mcp-<pid>/charts/<chartID>.html` by default, and serves the shared data root through a loopback HTTP server on an ephemeral `127.0.0.1` port. Use `-data-dir` to select another artifact root; charts are stored in its `charts/` subdirectory and linked through the local `/mcp/charts/<chartID>.html` service. The same loopback server proxies `/db/*`, `/web/*`, `/metrics/*`, and `/debug/*` to the configured machbase-neo endpoint with the configured MCP token. The MCP server must not place the API token in generated HTML or URLs.
 
 The VS Code API provides the public `vscode.open` command for opening the
 generated local HTML file. A future companion extension can watch the
@@ -97,6 +97,61 @@ dedicated Internal Browser command is not treated as a stable public API.
 Use `fs_list` to discover server-side TQL files and `tql_run_file` to read and
 execute a selected `.tql` file. The file path is an SSFS server path, not a
 local workspace path.
+
+## Server TQL files and browser links
+
+For an iterative server-side workflow, use `fs_write` to create or replace a
+`.tql` file, then call `tql_file_link`. The tool executes the file through the
+same external reading API documented at
+https://docs.machbase.com/neo/tql/reading.md and returns both the verification
+result and a loopback browser URL in the form `/db/tql/<path>.tql`. The
+loopback server adds the configured MCP token before forwarding the request to
+machbase-neo.
+
+Repeat `fs_write` and `tql_file_link` while refining the query or chart. This
+path does not create an intermediate HTML file in neo-mcp. A `CHART()` sink
+returns the server chart JSON envelope; CSV, JSON, NDJSON, Markdown, and HTML
+sinks return their native reading-API output.
+
+The returned URL contains no API token and does not require a separate browser
+login. It is reachable while the neo-mcp process is running and uses the MCP
+token owner's permissions. The loopback proxy only forwards the configured
+machbase-neo HTTP prefixes; neo-mcp-local services live under `/mcp/*`.
+
+### Box output
+
+Use `BOX()` to render incoming records as an ASCII table. This is the preferred
+sink when a user asks for a compact, human-readable table rather than a JSON or
+CSV response.
+
+```tql
+SQL(`SELECT NAME, COUNT(*) AS record_count FROM EXAMPLE GROUP BY NAME`)
+BOX()
+```
+
+For a server-side TQL file that should be opened in a browser, write it below
+`/project`, execute it with `tql_run_file`, then call `tql_file_link`. The link
+tool verifies the output and returns a token-free loopback URL.
+
+### Table record counts
+
+First call `db_list_tables` to obtain the visible table names. Machbase does
+not accept a literal table name and `COUNT(*)` together in an aggregate query
+unless the literal is grouped, so do not assume a query such as
+`SELECT 'TABLE' AS table_name, COUNT(*) FROM TABLE` will work. A portable
+approach is to union one `COUNT(*)` query per discovered table and prepend the
+known table name in TQL using each SQL row's one-based `key()`.
+
+```tql
+SQL(`SELECT COUNT(*) AS record_count FROM COMPLEX
+UNION ALL SELECT COUNT(*) AS record_count FROM EXAMPLE`)
+PUSHVALUE(0, key() == 1 ? 'COMPLEX' : 'EXAMPLE', 'table_name')
+BOX()
+```
+
+Keep the `UNION ALL` order and the `key()` conditions aligned. Execute the
+completed script before writing a `.tql` file, and execute the written file
+again with `tql_run_file` before presenting its `tql_file_link` URL.
 
 ## VS Code Copilot chart smoke test
 

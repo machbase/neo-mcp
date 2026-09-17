@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,6 +49,17 @@ func (c *SSHClient) RunJSH(ctx context.Context, script string) (JSHResult, error
 	// shell.Cmd for the "jsh" shellId is already the jsh engine itself, so the exec
 	// command only carries "-C <script>", not a "jsh" prefix.
 	return c.run(ctx, neoMCPSSHJshUser, "-C "+shellQuote(script))
+}
+
+func (c *SSHClient) RunJSHFile(ctx context.Context, publicPath string) (JSHResult, error) {
+	path, err := normalizeJSHFilePath(publicPath)
+	if err != nil {
+		return JSHResult{}, err
+	}
+	if !strings.HasSuffix(strings.ToLower(path), ".js") {
+		return JSHResult{}, fmt.Errorf("JSH file must have .js extension: %q", publicPath)
+	}
+	return c.RunJSH(ctx, "require("+strconv.Quote(path)+")")
 }
 
 // resolveAddress discovers the SSH (shell) service listener address by

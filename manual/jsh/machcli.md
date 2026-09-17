@@ -149,10 +149,11 @@ try {
 }
 ```
 
-For a server-side application written with `fs_write`, execute it with:
+For a server-side application written with `fs_write`, execute it with
+`jsh_run_file` using the MCP `/project` path:
 
-```js
-require('/work/analysis.js');
+```text
+jsh_run_file('/project/analysis.js')
 ```
 
 The reserved JSH command supplies the server's configured `/work` mount.
