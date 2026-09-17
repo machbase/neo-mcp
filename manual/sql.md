@@ -1,6 +1,9 @@
 # Machbase SQL Guidance
 
-Use the `db_query` tool for SQL sent to machbase-neo.
+Use the `db_query` tool for SQL sent to machbase-neo. For DBMS engine syntax
+(SQL statements, functions, data types, error codes) beyond this quick guide,
+read `neo://manual/sql/reference` — it links each DBMS SQL Reference chapter
+and summarizes the manual's own AI-agent SQL generation checklist.
 
 ## Querying
 
