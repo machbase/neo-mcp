@@ -58,6 +58,13 @@ A `Row` exposes each column as `row.COLUMN_NAME` and is also iterable. Use
 column properties for simple scripts and `for (const {key, value} of row)` when
 generic column processing is needed.
 
+A `DATETIME`/`TIME` column value is not a JS `Date`; it is a Go `time.Time`
+object bridged into the runtime (`typeof` is `'object'`, and it is not
+`instanceof Date`). `new Date(row.TIME)` fails with `Invalid time value`.
+Use its own methods instead: `row.TIME.string()` for the default
+`YYYY-MM-DD HH:MM:SS +ZZZZ ZZZ` text, `row.TIME.format(layout)` for a custom
+Go-style layout, or `row.TIME.unixNano()`/`unixMilli()` for an epoch number.
+
 Useful result methods:
 
 - `rows.next()` returns `{value, done}`

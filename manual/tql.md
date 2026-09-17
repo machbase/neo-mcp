@@ -31,6 +31,13 @@ CSV()
 - Use backtick strings for multi-line SQL passed to `SQL()`.
 - Use `param()` for HTTP query parameters and `value()`/`key()` for record fields.
 - Validate source/map/sink structure before retrying a runtime failure.
+- When a request asks for "a demo chart" from an unspecified tag/time window
+  rather than a specific one, do not just pick the first tag and the first
+  time range. Query aggregate stats (`MIN`, `MAX`, `AVG`, `STDDEV`) per
+  candidate `NAME`/time window first via `db_query`, and pick a tag and
+  window with a meaningfully non-zero `STDDEV_VALUE`. A flat or near-constant
+  series (low `STDDEV`) makes a poor visualization demo even though the query
+  itself succeeds.
 
 ## Minimal execution example
 
@@ -59,6 +66,70 @@ CHART(
 ```
 
 The `tql_run` Tool requests the Machbase chart JSON envelope. It contains the chart id, dimensions, ECharts assets, and generated chart code assets. A VS Code extension/webview renderer can load `jsAssets` first and then `jsCodeAssets`; the generated code must be loaded after ECharts finishes loading. Do not treat the chart envelope as ordinary tabular JSON, and do not replace `CHART()` with a hand-written chart protocol.
+
+### Multi-series charts
+
+`column(idx)` inside `chartOption({...})` takes exactly one argument and
+returns the full array of that record column's values (`_columns[idx]`); it
+does **not** accept a second argument to zip an x/y pair. `column(0, 1)`
+silently ignores the `1` and returns the same array as `column(0)`. Using it
+for two series' `data` therefore plots two identical, overlapping lines with
+no visible variation and an unhelpful legend.
+
+To plot one series per selected column against a shared `TIME` column (column
+0), build `[x, y]` pairs explicitly with `.map()`, and name each series so the
+`legend` can reference it. When both `title` and `legend` are present, also
+set explicit positions for them: both default to `top: 'auto'`/`left: 'auto'`,
+which places both in the top-left corner and makes them overlap. Push the
+legend down with `legend.top` and grow `grid.top` by a matching amount so the
+plot area does not get covered:
+
+```tql
+SQL(`SELECT a.TIME, a.VALUE AS temperature, b.VALUE AS dew_point
+FROM EXAMPLE a, EXAMPLE b
+WHERE a.NAME = 'temperature' AND b.NAME = 'dew_point' AND a.TIME = b.TIME
+ORDER BY a.TIME`)
+CHART(
+	chartOption({
+		title: { text: "temperature vs dew_point", left: "center" },
+		legend: { data: ["temperature", "dew_point"], top: 30 },
+		grid: { top: 70 },
+		xAxis: { type: "time" },
+		yAxis: {},
+		series: [
+			{ name: "temperature", type: "line", data: column(0).map(function(t, idx) { return [t, column(1)[idx]]; }) },
+			{ name: "dew_point", type: "line", data: column(0).map(function(t, idx) { return [t, column(2)[idx]]; }) }
+		]
+	})
+)
+```
+
+
+`chartOption({...})`'s body is not evaluated on the server as ordinary TQL
+expressions; it is shipped as literal JS source and executed in the browser
+against a generated `column(idx)` helper (`function column(idx) { return
+_columns[idx]; }`). Server-only TQL helpers such as `param()`, `value()`, and
+`key()` do not exist in that browser context and cause `ReferenceError: ... is
+not defined` in the browser console (the chart silently fails to render). To
+use an HTTP query parameter (for example `?n=<tag>`) in a chart title or
+series name, do not call `param()` inside `chartOption({...})`. Instead, bind
+it into the `SQL()` source as usual and also select it as a normal column so
+`column(idx)[0]` can read the scalar value client-side:
+
+```tql
+SQL(`SELECT TIME, VALUE, NAME FROM (
+  SELECT TIME, VALUE, NAME FROM EXAMPLE WHERE NAME = ? ORDER BY TIME DESC LIMIT 100
+) ORDER BY TIME`,
+    param('n') ?? 'temperature')
+CHART(
+	chartOption({
+		title: { text: (column(2)[0] || 'unknown') + ' - recent 100', left: 'center' },
+		xAxis: { type: 'time' },
+		yAxis: {},
+		series: [{ name: column(2)[0], type: 'line', data: column(0).map(function(t, idx) { return [t, column(1)[idx]]; }) }]
+	})
+)
+```
 
 For a database-independent chart smoke test, use `SCRIPT()` to generate a sine wave:
 
@@ -98,6 +169,45 @@ Use `fs_list` to discover server-side TQL files and `tql_run_file` to read and
 execute a selected `.tql` file. The file path is an SSFS server path, not a
 local workspace path.
 
+## Opening a result URL
+
+Both `tql_run` (chart HTML under `/mcp/charts/<chartID>.html`) and
+`tql_file_link` (proxied `/db/tql/<path>.tql`) return a plain `http://127.0.0.1:<port>/...`
+URL, not a rendering. This browser-first rule applies to any sink, not only
+`CHART()`/HTML: a browser tab often renders a `BOX()`, `CSV()`, `JSON()`, or
+`NDJSON()` result more readably than pasting it into the chat response,
+especially for wide tables or large payloads (see "Box output" below). Do not
+stop at printing the URL as a markdown link. Prefer this order when a
+browser-capable agent surface is available:
+
+1. Call the agent's internal/integrated browser tool (for example
+   `open_browser_page`, or `navigate_page` when a suitable tab is already
+   open) with the returned URL in the same turn, before writing the final
+   response, so the user sees the rendered chart or page directly.
+2. Only if no such browser tool is available or the call fails, fall back to
+   presenting the URL as a clickable markdown link (`[Open chart](...)` or
+   `[Open TQL](...)`) for the user to open manually.
+
+This is a mandatory action, not an optional courtesy: whenever a
+browser-capable surface is available, actually invoke the browser tool before
+replying. Displaying the URL as a markdown link is only a fallback for when
+no browser tool exists or the call failed; it is never a substitute for
+calling the browser tool when one is available, and a markdown link should
+not be the only thing shown in that case.
+
+Both link forms are already token-free loopback URLs, so either fallback link
+is safe to display as-is.
+
+The loopback port is ephemeral and chosen per MCP process lifetime, so it
+changes whenever the neo-mcp process restarts (for example after an MCP
+server restart in the editor). Never reuse a previously seen `127.0.0.1:<port>`
+URL from an earlier turn or an earlier browser tab without re-verifying it.
+Before opening or navigating to a chart/TQL URL, re-fetch it with `tql_run` or
+`tql_file_link` in the current turn and use the port that call just returned.
+If an existing browser tab shows a stale port and now fails to load, re-run
+`tql_file_link` for the same path and navigate the tab to the freshly returned
+URL instead of assuming the old port is still valid.
+
 ## Server TQL files and browser links
 
 For an iterative server-side workflow, use `fs_write` to create or replace a
@@ -127,6 +237,24 @@ CSV response.
 ```tql
 SQL(`SELECT NAME, COUNT(*) AS record_count FROM EXAMPLE GROUP BY NAME`)
 BOX()
+```
+
+`BOX()` returns `text/plain`, not HTML. Opening its `tql_run_file`/`tql_file_link`
+URL in a browser just shows the raw ASCII table as plain text, not a rendered
+widget; that is expected and is not a rendering failure. Either presentation
+is acceptable for a `BOX()` (or `CSV()`/`JSON()`/`NDJSON()`) result: showing it
+directly in the chat response is fine for a short result, and opening it in a
+browser tab is often more readable for a longer table or payload. Use
+judgment on result size rather than treating one presentation as mandatory.
+
+`BOX()` accepts the same encoder options as `CSV()`/`JSON()`/`NDJSON()`, even
+though its per-function doc is not yet detailed: `sqlTimeformat('DEFAULT')`/
+`ansiTimeformat(...)` controls the `TIME` column format, and `tz('Local')` (or
+an IANA zone) controls its time zone, renaming the column to `TIME(LOCAL)`.
+
+```tql
+SQL(`SELECT TIME, VALUE FROM EXAMPLE WHERE NAME = 'wind_speed' ORDER BY TIME DESC LIMIT 100`)
+BOX(sqlTimeformat('DEFAULT'), tz('Local'))
 ```
 
 For a server-side TQL file that should be opened in a browser, write it below

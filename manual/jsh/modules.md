@@ -28,6 +28,10 @@ Priority manuals for data analysis and ETL:
 - `neo://manual/jsh/pretty`
 - `neo://manual/jsh/util`
 
+Priority manual for web applications:
+
+- `neo://manual/jsh/http`
+
 Priority manuals for execution environment and operations:
 
 - `neo://manual/jsh/process`

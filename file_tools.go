@@ -51,7 +51,7 @@ func registerFileTools(mcpServer *server.MCPServer, client *Client) {
 	mcpServer.AddTool(
 		mcp.NewTool("fs_write",
 			mcp.WithTitleAnnotation("Write server file"),
-			mcp.WithDescription("Write content to a supported file in the MCP /project namespace. This changes server state; do not use internal /work paths."),
+			mcp.WithDescription("Write content to a supported file in the MCP /project namespace, creating any missing parent directories automatically (mkdir -p semantics). This changes server state; do not use internal /work paths."),
 			mcp.WithReadOnlyHintAnnotation(false),
 			mcp.WithDestructiveHintAnnotation(true),
 			mcp.WithIdempotentHintAnnotation(true),

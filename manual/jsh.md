@@ -36,6 +36,12 @@ For query-transform-insert workflows, also read
 `neo://manual/jsh/etl`. It provides a bounded analysis-to-database example and
 the `fs_write` → `jsh_exec` execution sequence.
 
+For a web application that serves database-backed pages, read
+`neo://manual/jsh/http`. It summarizes the `http.Server` route/static/template
+API, the reference file layout (`index.js`, `support.js`, `handlers/*.js`,
+templates, `static/`), and — importantly — why a script that calls
+`server.serve()` must not be run directly through `jsh_exec`/`jsh_run_file`.
+
 The canonical module and export metadata comes from the neo-server JSH language service:
 
 - `neo-server/mods/lsp/jsh/service.go` builds runtime and module metadata.

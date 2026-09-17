@@ -262,10 +262,69 @@ func (c *Client) ReadFile(ctx context.Context, remotePath string) (any, error) {
 	return result, err
 }
 
+// ensureRemoteDir creates each missing ancestor directory of dirPath one
+// level at a time, since the underlying /db/files API only creates a single
+// directory level per call (no recursive mkdir -p). Already-existing
+// directories are tolerated.
+func (c *Client) ensureRemoteDir(ctx context.Context, dirPath string) error {
+	dirPath = strings.Trim(dirPath, "/")
+	if dirPath == "" {
+		return nil
+	}
+	segments := strings.Split(dirPath, "/")
+	current := ""
+	for _, segment := range segments {
+		if segment == "" {
+			continue
+		}
+		current += "/" + segment
+		if err := c.mkdirIfMissing(ctx, current); err != nil {
+			return fmt.Errorf("failed to create parent directory %q: %w", current, err)
+		}
+	}
+	return nil
+}
+
+func (c *Client) mkdirIfMissing(ctx context.Context, path string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/db/files"+path, nil)
+	if err != nil {
+		return err
+	}
+	// Deliberately not "text/plain" or "application/json": an empty,
+	// non-JSON body on a path with no recognized file extension routes the
+	// server handler to its MkDir branch instead of writing file content.
+	req.Header.Set("Content-Type", "application/octet-stream")
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	response, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	responseBody, err := c.readResponseBody(response.Body)
+	if err != nil {
+		return err
+	}
+	if response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusMultipleChoices {
+		return nil
+	}
+	if strings.Contains(string(responseBody), "exists") {
+		// Directory already present; not an error for mkdir -p semantics.
+		return nil
+	}
+	return fmt.Errorf("machbase API returned HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(responseBody)))
+}
+
 func (c *Client) WriteFile(ctx context.Context, remotePath, content string) (any, error) {
 	path, err := normalizeMCPFilePath(remotePath)
 	if err != nil {
 		return nil, err
+	}
+	if parent := pathpkg.Dir(path); parent != "" && parent != "/" && parent != "." {
+		if err := c.ensureRemoteDir(ctx, parent); err != nil {
+			return nil, err
+		}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/db/files"+path, strings.NewReader(content))
 	if err != nil {
