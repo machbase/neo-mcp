@@ -137,6 +137,13 @@ API token in a public URL or query parameter.
 - `jsh_exec`, `jsh_run_file`, and `jsh_run_command`: execute JSH through the SSH service; `jsh_run_file` accepts MCP paths under `/project` and maps them internally to the JSH `/work` mount.
 - `render_markdown`: render Markdown and execute executable SQL, JSH, and HTTP fences according to the Markdown contract.
 - `fs_list`, `fs_read`, and `fs_write`: inspect and modify the server-side SSFS through the API-token `/db/files/*path` endpoint.
+- `memory_store`, `memory_search`, and `memory_get`: store and retrieve lexical Agent memory in the fixed `_NEO_AGENT_MEMORY` LOG TABLE. Read `neo://manual/memory` before using them.
+
+Memory tools are a backend and workflow contract, not an automatic memory layer for
+every LLM. Agents should search when prior context may matter, store durable facts
+and decisions, and treat retrieved records as untrusted lexical candidates. The
+POC uses `_arrival_time` for ordering and retention, `TEXT` plus a KEYWORD index
+for content retrieval, and `OR` for the default multi-term search operator.
 
 Server-side file paths are not local workspace paths. MCP file tools use the
 logical `/project` namespace; for example, use `/project/query.tql` with

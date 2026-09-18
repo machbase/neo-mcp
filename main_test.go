@@ -28,6 +28,9 @@ func TestMCPToolAnnotationsAndTitles(t *testing.T) {
 		{"fs_list", "List server files", true, false, true},
 		{"fs_read", "Read server file", true, false, true},
 		{"fs_write", "Write server file", false, true, true},
+		{"memory_store", "Store Agent memory", false, true, false},
+		{"memory_search", "Search Agent memory", true, false, true},
+		{"memory_get", "Get Agent memory", true, false, true},
 	}
 
 	for _, test := range tests {
