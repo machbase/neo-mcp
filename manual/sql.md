@@ -21,6 +21,51 @@ another logical database. Use `neo://machbase/table/{table}` for the current tab
 - Treat identifiers returned by metadata tools as authoritative.
 - Keep exploratory queries read-only unless the configured DB user is intentionally a development user.
 
+## LOG TABLE Arrival Time
+
+Machbase LOG TABLEs provide the database-managed `_arrival_time` pseudo-column
+for each inserted record. It is not included in `SELECT *`; select it explicitly
+when the query result needs the record arrival time:
+
+```sql
+SELECT _arrival_time, *
+FROM EXAMPLE_LOG
+ORDER BY _arrival_time DESC
+LIMIT 10
+```
+
+Table names that begin with `_` are hidden from the default `SHOW TABLES`
+result. Use `SHOW TABLES WITH ALL` when discovering or checking the existence
+of internal tables:
+
+```sql
+SHOW TABLES WITH ALL
+```
+
+Also reference `_arrival_time` explicitly when filtering, ordering, or applying
+retention-related time ranges. Do not assume an application timestamp column is
+equivalent to the database-managed arrival time.
+
+## TAG TABLE lifecycle and TAG cache
+
+Each `CREATE TAG TABLE` consumes TAG cache memory. TAG cache usage therefore
+grows with the number of TAG TABLEs, even when a table was created only for a
+test, demonstration, probe, or temporary workflow.
+
+- Pair every temporary `CREATE TAG TABLE` with deterministic `DROP TABLE`
+	cleanup. Do not rely on process exit or a later test to remove it.
+- Close rows, appenders, and database connections that reference the table
+	before dropping it.
+- When cleanup runs as a different user, use the owner-qualified table name,
+	for example `DROP TABLE demo_user.temp_tags`; an unqualified name can target
+	the cleanup user's schema and leave the intended table allocated.
+- Check and report cleanup errors instead of ignoring them. Leaked TAG TABLEs
+	can make later table creation fail with
+	`MACHCLI-ERR-1423, TAG cache exhausted`.
+- In a test suite that shares one Machbase instance, register cleanup
+	immediately after a successful create and ensure the table is dropped before
+	its owner is dropped.
+
 ## Identifiers and Aggregate Aliases
 
 Avoid SQL keywords as table names, column aliases, or CTE names. In

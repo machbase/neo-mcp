@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -21,6 +22,17 @@ func TestReadManualSupportsRootAndNestedURI(t *testing.T) {
 	}
 	if len(sql) == 0 {
 		t.Fatal("expected SQL manual content")
+	}
+	if !strings.Contains(sql, "Each `CREATE TAG TABLE` consumes TAG cache memory") {
+		t.Fatal("expected SQL manual to document TAG cache lifecycle")
+	}
+
+	machcli, err := readManual("neo://manual/jsh/machcli")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(machcli, "MACHCLI-ERR-1423, TAG cache exhausted") {
+		t.Fatal("expected machcli manual to document TAG cache exhaustion")
 	}
 
 	nested, err := readManual("neo://manual/tql/overview")

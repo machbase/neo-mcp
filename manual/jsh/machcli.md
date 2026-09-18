@@ -88,6 +88,14 @@ const result = conn.exec(
 console.println('affected:', result.rowsAffected, 'message:', result.message);
 ```
 
+`CREATE TAG TABLE` has an important lifecycle constraint: each TAG TABLE
+consumes TAG cache memory, so temporary tables must be dropped deterministically.
+Before `DROP TABLE`, close any rows, appenders, and connections that still
+reference the table. If cleanup uses another user, drop the owner-qualified
+name such as `demo_user.temp_tags`, and surface cleanup failures. Otherwise a
+leaked table can eventually cause `MACHCLI-ERR-1423, TAG cache exhausted` in an
+unrelated later operation.
+
 `conn.explain(sql, ...params)` returns an execution plan string.
 
 ## Transactions

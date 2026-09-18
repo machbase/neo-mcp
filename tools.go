@@ -77,7 +77,7 @@ func registerReadOnlyTools(mcpServer *server.MCPServer, client *Client) {
 	mcpServer.AddTool(
 		mcp.NewTool("db_query",
 			mcp.WithTitleAnnotation("Machbase SQL query"),
-			mcp.WithDescription("Execute a SQL query through the configured machbase-neo HTTP API. Read neo://manual/sql first, especially its identifier guidance: avoid SQL keywords such as ROWS as aliases and prefer names like row_count or record_count."),
+			mcp.WithDescription("Execute a SQL query through the configured machbase-neo HTTP API. Read neo://manual/sql first. Every temporary CREATE TAG TABLE consumes TAG cache memory and must have deterministic DROP TABLE cleanup; also avoid SQL keywords such as ROWS as aliases."),
 			mcp.WithReadOnlyHintAnnotation(false),
 			mcp.WithDestructiveHintAnnotation(true),
 			mcp.WithIdempotentHintAnnotation(false),
