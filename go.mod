@@ -3,7 +3,7 @@ module github.com/machbase/neo-mcp
 go 1.26.3
 
 require (
-	github.com/mark3labs/mcp-go v1.1.0
+	github.com/mark3labs/mcp-go v1.4.0
 	github.com/stretchr/testify v1.11.1
 )
 
