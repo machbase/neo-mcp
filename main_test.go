@@ -24,6 +24,7 @@ func TestMCPToolAnnotationsAndTitles(t *testing.T) {
 		{"jsh_run_file", "Run server JSH file", false, true, false},
 		{"render_markdown", "Render and Execute Markdown", false, true, false},
 		{"db_list_tables", "List Machbase tables", true, false, true},
+		{"manual_search", "Search Machbase Neo manuals", true, false, true},
 		{"server_info", "Machbase server info", true, false, true},
 		{"fs_list", "List server files", true, false, true},
 		{"fs_read", "Read server file", true, false, true},
@@ -43,4 +44,12 @@ func TestMCPToolAnnotationsAndTitles(t *testing.T) {
 			require.Equal(t, test.idempotent, *tool.Tool.Annotations.IdempotentHint)
 		})
 	}
+}
+
+func TestManualSearchToolDescriptionPrioritizesManualQuestions(t *testing.T) {
+	mcpServer := NewMCPServer(nil, nil)
+	tool := mcpServer.GetTool("manual_search")
+	require.NotNil(t, tool)
+	require.Contains(t, tool.Tool.Description, "기능에 대한 질문과 활용법")
+	require.Contains(t, tool.Tool.Description, "이 도구를 우선 사용")
 }

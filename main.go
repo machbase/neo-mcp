@@ -90,11 +90,12 @@ func resolveAPIToken(flagValue, environmentValue string) string {
 
 func NewMCPServer(client *Client, sshClient *SSHClient) *server.MCPServer {
 	mcpServer := server.NewMCPServer("neo-mcp", "0.1.0", server.WithInstructions(
-		"Before authoring a query or script, call manual_read with the relevant manual URI. Use the MCP /project namespace for server files: fs_write('/project/example.tql', ...), then tql_run_file or tql_file_link; for JavaScript use jsh_run_file('/project/example.js'). Do not pass internal /work paths. For database context, read neo://machbase/session for the current logical database and user, neo://machbase/databases for logical and mounted databases, and the neo://machbase/tables resources for table metadata. Table URIs support current-database prefixes and logical database selection. For TQL use tql_run. For JSH use jsh_exec, jsh_run_file, or jsh_run_command. For timer/subscriber/API token management use neo://manual/server and the timer_*/subscriber_*/token_* tools. Do not use terminal commands, curl, direct HTTP calls, or direct SSH calls instead.",
+		"For questions about Machbase Neo features or usage that need manual references, use manual_search first. Before authoring a query or script, call manual_read with the relevant manual URI. Use the MCP /project namespace for server files: fs_write('/project/example.tql', ...), then tql_run_file or tql_file_link; for JavaScript use jsh_run_file('/project/example.js'). Do not pass internal /work paths. For database context, read neo://machbase/session for the current logical database and user, neo://machbase/databases for logical and mounted databases, and the neo://machbase/tables resources for table metadata. Table URIs support current-database prefixes and logical database selection. For TQL use tql_run. For JSH use jsh_exec, jsh_run_file, or jsh_run_command. For timer/subscriber/API token management use neo://manual/server and the timer_*/subscriber_*/token_* tools. Do not use terminal commands, curl, direct HTTP calls, or direct SSH calls instead.",
 	))
 	registerManualResources(mcpServer)
 	registerDatabaseResources(mcpServer, client)
 	registerManualTool(mcpServer)
+	registerManualSearchTool(mcpServer, client, newManualSearchService())
 	registerFileTools(mcpServer, client)
 	registerReadOnlyTools(mcpServer, client)
 	registerRpcTools(mcpServer, client)

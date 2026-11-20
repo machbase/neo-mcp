@@ -249,6 +249,30 @@ func registerManualTool(mcpServer *server.MCPServer) {
 	)
 }
 
+func registerManualSearchTool(mcpServer *server.MCPServer, client *Client, searcher *manualSearchService) {
+	mcpServer.AddTool(
+		mcp.NewTool("manual_search",
+			mcp.WithTitleAnnotation("Search Machbase Neo manuals"),
+			mcp.WithDescription("Search indexed Machbase Neo manual chunks by natural-language query using vector similarity. machbase neo의 기능에 대한 질문과 활용법 등 매뉴얼 참조가 필요한 경우 이 도구를 우선 사용하십시오. The selected model must match the model used to index the manuals. Results include source URLs and vector distances (lower is more relevant)."),
+			mcp.WithReadOnlyHintAnnotation(true),
+			mcp.WithDestructiveHintAnnotation(false),
+			mcp.WithIdempotentHintAnnotation(true),
+			mcp.WithString("query", mcp.Required(), mcp.Description("Natural-language question about Machbase Neo manuals")),
+			mcp.WithNumber("top_n", mcp.Description("Maximum number of matching chunks to return (integer from 1 to 20; default 3)")),
+			mcp.WithString("model", mcp.Description("Embedding model used to index the manuals (default RETRIEVAL32M)"), mcp.WithStringEnumItems(manualSearchModelNames)),
+			mcp.WithString("language", mcp.Description("Manual language filter: en, kr, or ja. Defaults to automatic detection."), mcp.WithStringEnumItems([]string{"en", "kr", "ja"})),
+		),
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			options, err := parseManualSearchOptions(request.Params.Arguments)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			result, err := searcher.search(ctx, client, options)
+			return toolResult(result, err)
+		},
+	)
+}
+
 func toolResult(result any, err error) (*mcp.CallToolResult, error) {
 	if err != nil {
 		return mcp.NewToolResultError(mapMCPError(err)), nil

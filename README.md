@@ -132,6 +132,7 @@ API token in a public URL or query parameter.
 ## Tools
 
 - `db_query`: execute SQL with HTTP query options such as `format`, `timeformat`, `tz`, `db`, and bind parameters.
+- `manual_search`: search pre-indexed Machbase Neo manual chunks by natural-language query using vector similarity. The default embedding model is `RETRIEVAL32M`; the selected model and language must match the manual index. Missing model files are downloaded on first use and cached by go-potion; set `GO_POTION_HOME` to use a custom cache directory.
 - `tql_run` and `tql_run_file`: execute inline TQL or a server-side `.tql` file.
 - `tql_file_link`: execute a server-side `.tql` through `/db/tql/<path>.tql` and return a loopback browser URL plus verification result; the loopback proxy adds the configured token and combines naturally with `fs_write` for iterative authoring.
 - `jsh_exec`, `jsh_run_file`, and `jsh_run_command`: execute JSH through the SSH service; `jsh_run_file` accepts MCP paths under `/project` and maps them internally to the JSH `/work` mount.
